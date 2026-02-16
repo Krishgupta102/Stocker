@@ -3,26 +3,34 @@ import { Link } from "react-router-dom";
 import axios from "axios";
 
 import GeneralContext from "./GeneralContext";
+import { toast } from "react-toastify";
 
 import "./BuyActionWindow.css"; // you can reuse same CSS
 
 const SellActionWindow = ({ uid }) => {
   const [stockQuantity, setStockQuantity] = useState(1);
   const [stockPrice, setStockPrice] = useState(0.0);
+  const { closeSellWindow } = React.useContext(GeneralContext);
 
-  const handleSellClick = () => {
-    axios.post("http://localhost:3002/newOrder", {
-      name: uid,
-      qty: stockQuantity,
-      price: stockPrice,
-      mode: "SELL", // 🔥 important difference
-    });
+  const handleSellClick = async () => {
+    try {
+      await axios.post("http://localhost:3002/newOrder", {
+        name: uid,
+        qty: stockQuantity,
+        price: stockPrice,
+        mode: "SELL",
+      });
 
-    GeneralContext.closeSellWindow();
+      closeSellWindow();
+      toast.success("Sell Order Placed Successfully!");
+    } catch (error) {
+      console.error("Sell failed:", error);
+      toast.error(error.response?.data?.error || "Failed to sell stock");
+    }
   };
 
   const handleCancelClick = () => {
-    GeneralContext.closeSellWindow();
+    closeSellWindow();
   };
 
   return (
