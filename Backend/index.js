@@ -8,6 +8,7 @@ const cors = require("cors");
 const { HoldingsModel } = require("./model/HoldingsModel");
 const { PositionsModel } = require("./model/PositionsModel");
 const { OrdersModel } = require("./model/OrdersModel");
+const stockApi = require("./services/stockApi");
 
 const PORT = process.env.PORT || 3002;
 const uri = process.env.MONGO_URL;
@@ -16,6 +17,36 @@ const app = express();
 
 app.use(cors());
 app.use(bodyParser.json());
+
+// ✅ Fetch live stock price
+app.get("/api/stock/:symbol", async (req, res) => {
+  try {
+    const { symbol } = req.params;
+    const yahooSymbol = stockApi.toYahooSymbol(symbol);
+    const stockData = await stockApi.getStockPrice(yahooSymbol);
+    res.json(stockData);
+  } catch (error) {
+    console.error("Error fetching stock:", error);
+    res.status(500).json({ error: "Failed to fetch stock data" });
+  }
+});
+
+// ✅ Fetch multiple stocks in batch
+app.get("/api/stocks/batch", async (req, res) => {
+  try {
+    const { symbols } = req.query; // e.g., ?symbols=INFY,TCS,RELIANCE
+    if (!symbols) {
+      return res.status(400).json({ error: "symbols query parameter required" });
+    }
+
+    const symbolArray = symbols.split(',').map(s => stockApi.toYahooSymbol(s.trim()));
+    const stocksData = await stockApi.getMultipleStocks(symbolArray);
+    res.json(stocksData);
+  } catch (error) {
+    console.error("Error fetching stocks:", error);
+    res.status(500).json({ error: "Failed to fetch stocks data" });
+  }
+});
 
 // Fetch holdings
 app.get("/allHoldings", async (req, res) => {
