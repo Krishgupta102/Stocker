@@ -7,6 +7,10 @@ import { toast } from "react-toastify";
 
 import "./BuyActionWindow.css"; // you can reuse same CSS
 
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || "http://localhost:3002",
+});
+
 const SellActionWindow = ({ uid }) => {
   const [stockQuantity, setStockQuantity] = useState(1);
   const [stockPrice, setStockPrice] = useState(0.0);
@@ -14,7 +18,7 @@ const SellActionWindow = ({ uid }) => {
 
   const handleSellClick = async () => {
     try {
-      await axios.post("http://localhost:3002/newOrder", {
+      await api.post("/newOrder", {
         name: uid,
         qty: stockQuantity,
         price: stockPrice,

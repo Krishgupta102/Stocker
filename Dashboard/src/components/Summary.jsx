@@ -1,13 +1,29 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 
+
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || "http://localhost:3002",
+});
+
 const Summary = () => {
   const [allHoldings, setAllHoldings] = useState([]);
 
   useEffect(() => {
-    axios.get("http://localhost:3002/allHoldings").then((res) => {
-      setAllHoldings(res.data);
-    });
+    let mounted = true;
+    const fetch = async () => {
+      try {
+        const res = await api.get("/allHoldings");
+        if (mounted) setAllHoldings(res.data || []);
+      } catch (err) {
+        console.error("Failed to fetch holdings:", err);
+        if (mounted) setAllHoldings([]);
+      }
+    };
+    fetch();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   let totalInvestment = 0;

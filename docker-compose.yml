@@ -1,0 +1,53 @@
+version: "3.8"
+
+services:
+  mongo:
+    image: mongo:6
+    container_name: stocker-mongo
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    ports:
+      - "27017:27017"
+
+  backend:
+    build: ./Backend
+    container_name: stocker-backend
+    restart: unless-stopped
+    environment:
+      - MONGO_URL=mongodb://mongo:27017/stocker-app
+      - PORT=3002
+    depends_on:
+      - mongo
+    ports:
+      - "3002:3002"
+
+  frontend:
+    build: ./Frontend
+    container_name: stocker-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - VITE_API_URL=http://localhost:3002
+      - VITE_FRONTEND_URL=http://localhost:3000
+
+  dashboard:
+    build: ./Dashboard
+    container_name: stocker-dashboard
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - VITE_API_URL=http://localhost:3002
+      - VITE_FRONTEND_URL=http://localhost:3001
+
+volumes:
+  mongo-data:
+    driver: local

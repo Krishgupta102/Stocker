@@ -16,6 +16,10 @@ import {
 import { watchlist as defaultWatchlist } from "../data/data";
 import { DoughnutChart } from "./DoughtnoutChart";
 
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || "http://localhost:3002",
+});
+
 const WatchList = () => {
   const [watchlist, setWatchlist] = useState(defaultWatchlist);
   const [loading, setLoading] = useState(true);
@@ -26,8 +30,8 @@ const WatchList = () => {
       // Get stock symbols from default watchlist
       const symbols = defaultWatchlist.map(stock => stock.name).join(',');
       
-      const response = await axios.get(`http://localhost:3002/api/stocks/batch?symbols=${symbols}`);
-      const liveData = response.data;
+      const response = await api.get(`/api/stocks/batch?symbols=${encodeURIComponent(symbols)}`);
+      const liveData = response.data || [];
       
       // Merge live data with default watchlist (preserve qty, avg if exists)
       const updatedWatchlist = defaultWatchlist.map((stock, index) => ({

@@ -31,7 +31,7 @@ const Menu = () => {
     try {
       await signOut(auth);
       toast.success("Logged out successfully", { position: "top-center" });
-      window.location.href = "http://localhost:5173/"; // redirect to login
+      window.location.href = import.meta.env.VITE_FRONTEND_URL || "/"; // redirect to login
     } catch (error) {
       console.error("Logout error:", error);
       toast.error("Failed to log out", { position: "bottom-center" });

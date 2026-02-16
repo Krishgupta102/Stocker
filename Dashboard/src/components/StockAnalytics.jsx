@@ -4,6 +4,11 @@ import GeneralContext from './GeneralContext';
 import { KeyboardArrowUp, KeyboardArrowDown, Close } from '@mui/icons-material';
 import './StockAnalytics.css';
 
+
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3002',
+});
+
 const StockAnalytics = () => {
   const { isAnalyticsOpen, analyticsStock, closeAnalytics } = useContext(GeneralContext);
   const [stockData, setStockData] = useState(null);
@@ -20,7 +25,7 @@ const StockAnalytics = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await axios.get(`http://localhost:3002/api/stock/${analyticsStock}`);
+      const response = await api.get(`/api/stock/${analyticsStock}`);
       setStockData(response.data);
       setLoading(false);
     } catch (err) {
