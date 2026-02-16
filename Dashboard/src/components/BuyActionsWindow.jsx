@@ -15,7 +15,7 @@ const BuyActionWindow = ({ uid }) => {
 
   const handleBuyClick = async () => {
     try {
-      await axios.post("http://localhost:3002/newOrder", {
+      await axios.post(`${import.meta.env.VITE_API_URL}/newOrder`,{
         name: uid,
         qty: stockQuantity,
         price: stockPrice,

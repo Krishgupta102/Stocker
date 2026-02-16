@@ -2,18 +2,28 @@ import React, { useState, useEffect } from "react";
 import axios from "axios";
 import "../App.css";
 
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || "http://localhost:3002",
+});
+
 const Orders = () => {
   const [orders, setOrders] = useState([]);
 
   useEffect(() => {
-    axios
-      .get("http://localhost:3002/allOrders") // <-- API endpoint to fetch orders
-      .then((res) => {
-        setOrders(res.data);
-      })
-      .catch((err) => {
+    let mounted = true;
+    const fetchOrders = async () => {
+      try {
+        const res = await api.get("/allOrders");
+        if (mounted) setOrders(res.data || []);
+      } catch (err) {
         console.error("Error fetching orders:", err);
-      });
+        if (mounted) setOrders([]);
+      }
+    };
+    fetchOrders();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   return (

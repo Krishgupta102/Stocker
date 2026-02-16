@@ -12,11 +12,9 @@ function Login() {
     e.preventDefault();
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      console.log("User logged in Successfully");
-      window.location.href = "http://localhost:5174";
-      toast.success("User logged in Successfully", {
-        position: "top-center",
-      });
+      toast.success("User logged in Successfully", { position: "top-center" });
+      // use env var in Docker or fallback to root
+      window.location.href = import.meta.env.VITE_DASHBOARD_URL || "/Dashboard";
     } catch (error) {
       console.log(error.message);
       toast.error(error.message, {
