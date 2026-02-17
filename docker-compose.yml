@@ -15,7 +15,7 @@ services:
     container_name: stocker-backend
     restart: unless-stopped
     environment:
-      - MONGO_URL=mongodb://mongo:27017/stocker-app
+      - MONGO_URL=mongodb+srv://Krishgupta102:gckmnmj622SnR2Nt@cluster0.u7xxq2v.mongodb.net/stocker-app
       - PORT=3002
     depends_on:
       - mongo
