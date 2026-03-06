@@ -1,0 +1,52 @@
+name: Stocker CI Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v3
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: 18
+
+    # Backend
+    - name: Install Backend Dependencies
+      run: |
+        cd Backend
+        npm install
+
+    # Frontend
+    - name: Install Frontend Dependencies
+      run: |
+        cd Frontend
+        npm install
+
+    - name: Build Frontend
+      run: |
+        cd Frontend
+        npm run build
+
+    # Dashboard
+    - name: Install Dashboard Dependencies
+      run: |
+        cd Dashboard
+        npm install
+
+    - name: Build Dashboard
+      run: |
+        cd Dashboard
+        npm run build
+
+    # Docker build
+    - name: Build Docker Containers
+      run: docker-compose build
