@@ -1,0 +1,67 @@
+[dotenv@17.2.2] injecting env (3) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+DB connected successfully
+Server running on port 3002
+Error processing order: DocumentNotFoundError: No document found for query "{ _id: new ObjectId('6a578c90dc1c3a2c5fae6c2b') }" on model "holding"
+    at /Users/krishgupta/Downloads/Stocker/Backend/node_modules/mongoose/lib/model.js:545:17
+    at /Users/krishgupta/Downloads/Stocker/Backend/node_modules/mongoose/lib/model.js:450:9
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {
+  result: {
+    acknowledged: true,
+    modifiedCount: 0,
+    upsertedId: null,
+    upsertedCount: 0,
+    matchedCount: 0,
+    '$where': { _id: new ObjectId('6a578c90dc1c3a2c5fae6c2b') }
+  },
+  numAffected: 0,
+  filter: { _id: new ObjectId('6a578c90dc1c3a2c5fae6c2b') },
+  query: { _id: new ObjectId('6a578c90dc1c3a2c5fae6c2b') }
+}
+Error processing order: DocumentNotFoundError: No document found for query "{ _id: new ObjectId('6a578c90dc1c3a2c5fae6c37') }" on model "holding"
+    at /Users/krishgupta/Downloads/Stocker/Backend/node_modules/mongoose/lib/model.js:545:17
+    at /Users/krishgupta/Downloads/Stocker/Backend/node_modules/mongoose/lib/model.js:450:9
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {
+  result: {
+    acknowledged: true,
+    modifiedCount: 0,
+    upsertedId: null,
+    upsertedCount: 0,
+    matchedCount: 0,
+    '$where': { _id: new ObjectId('6a578c90dc1c3a2c5fae6c37') }
+  },
+  numAffected: 0,
+  filter: { _id: new ObjectId('6a578c90dc1c3a2c5fae6c37') },
+  query: { _id: new ObjectId('6a578c90dc1c3a2c5fae6c37') }
+}
+Error processing order: DocumentNotFoundError: No document found for query "{ _id: new ObjectId('6a578c90dc1c3a2c5fae6c33') }" on model "holding"
+    at /Users/krishgupta/Downloads/Stocker/Backend/node_modules/mongoose/lib/model.js:545:17
+    at /Users/krishgupta/Downloads/Stocker/Backend/node_modules/mongoose/lib/model.js:450:9
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {
+  result: {
+    acknowledged: true,
+    modifiedCount: 0,
+    upsertedId: null,
+    upsertedCount: 0,
+    matchedCount: 0,
+    '$where': { _id: new ObjectId('6a578c90dc1c3a2c5fae6c33') }
+  },
+  numAffected: 0,
+  filter: { _id: new ObjectId('6a578c90dc1c3a2c5fae6c33') },
+  query: { _id: new ObjectId('6a578c90dc1c3a2c5fae6c33') }
+}
+Error processing order: DocumentNotFoundError: No document found for query "{ _id: new ObjectId('6a578c90dc1c3a2c5fae6c31') }" on model "holding"
+    at /Users/krishgupta/Downloads/Stocker/Backend/node_modules/mongoose/lib/model.js:545:17
+    at /Users/krishgupta/Downloads/Stocker/Backend/node_modules/mongoose/lib/model.js:450:9
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {
+  result: {
+    acknowledged: true,
+    modifiedCount: 0,
+    upsertedId: null,
+    upsertedCount: 0,
+    matchedCount: 0,
+    '$where': { _id: new ObjectId('6a578c90dc1c3a2c5fae6c31') }
+  },
+  numAffected: 0,
+  filter: { _id: new ObjectId('6a578c90dc1c3a2c5fae6c31') },
+  query: { _id: new ObjectId('6a578c90dc1c3a2c5fae6c31') }
+}
