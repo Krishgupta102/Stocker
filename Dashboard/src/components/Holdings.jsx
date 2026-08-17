@@ -1,52 +1,127 @@
 import React, { useState, useEffect } from "react";
-import axios, { all } from "axios";
+import axios from "axios";
 import { VerticalGraph } from "./VerticalGraph";
-
-// import { holdings } from "../data/data";
 import "../App.css";
 
-// use Vite env var so Docker/localhost works
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "http://localhost:3002",
+  baseURL:
+    import.meta.env.VITE_API_URL || "http://localhost:3002",
 });
 
 const Holdings = () => {
   const [allHoldings, setAllHoldings] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     let mounted = true;
+
     const fetchHoldings = async () => {
       try {
+        setLoading(true);
+        setError("");
+
         const res = await api.get("/allHoldings");
-        if (mounted) setAllHoldings(res.data || []);
+
+        if (mounted) {
+          setAllHoldings(res.data || []);
+        }
       } catch (err) {
         console.error("Failed to fetch holdings:", err);
-        if (mounted) setAllHoldings([]);
+
+        if (mounted) {
+          setError("Failed to load holdings");
+          setAllHoldings([]);
+        }
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
       }
     };
+
     fetchHoldings();
+
     return () => {
       mounted = false;
     };
   }, []);
 
-  // const labels = ['January', 'February', 'March', 'April', 'May', 'June', 'July'];
-  const labels = allHoldings.map((subArray) => subArray["name"]);
+  // -----------------------------
+  // Calculate portfolio totals
+  // -----------------------------
+
+  const totalInvestment = allHoldings.reduce((total, stock) => {
+    const investment =
+      Number(stock.investment) ||
+      Number(stock.avg) * Number(stock.qty) ||
+      0;
+
+    return total + investment;
+  }, 0);
+
+  const currentValue = allHoldings.reduce((total, stock) => {
+    const value =
+      Number(stock.currentValue) ||
+      Number(stock.price) * Number(stock.qty) ||
+      0;
+
+    return total + value;
+  }, 0);
+
+  const pnl = currentValue - totalInvestment;
+
+  const pnlPercent =
+    totalInvestment > 0
+      ? (pnl / totalInvestment) * 100
+      : 0;
+
+  // -----------------------------
+  // Chart data
+  // -----------------------------
+
+  const labels = allHoldings.map((stock) => stock.name);
 
   const data = {
     labels,
     datasets: [
       {
         label: "Stock Price",
-        data: allHoldings.map((stock) => stock.price),
+        data: allHoldings.map(
+          (stock) => Number(stock.price) || 0
+        ),
         backgroundColor: "rgba(255, 99, 132, 0.5)",
       },
     ],
   };
 
+  // -----------------------------
+  // Loading state
+  // -----------------------------
+
+  if (loading) {
+    return (
+      <div className="loading">
+        Loading holdings...
+      </div>
+    );
+  }
+
+  // -----------------------------
+  // Error state
+  // -----------------------------
+
+  if (error) {
+    return (
+      <div className="error">
+        {error}
+      </div>
+    );
+  }
+
   return (
     <>
-      <h3 className="title">Holdings ({allHoldings.length})</h3>
+      <h2>Holdings ({allHoldings.length})</h2>
 
       <div className="order-table">
         <table>
@@ -64,24 +139,64 @@ const Holdings = () => {
           </thead>
 
           <tbody>
-            {allHoldings.map((stock, index) => {
-              const curValue = stock.price * stock.qty;
-              const isProfit = curValue - stock.avg * stock.qty >= 0.0;
-              const profClass = isProfit ? "profit" : "loss";
-              const dayClass = stock.isLoss ? "loss" : "profit";
+            {allHoldings.map((stock) => {
+              const qty = Number(stock.qty) || 0;
+              const avg = Number(stock.avg) || 0;
+              const price = Number(stock.price) || 0;
+
+              const investment =
+                Number(stock.investment) ||
+                avg * qty;
+
+              const curValue =
+                Number(stock.currentValue) ||
+                price * qty;
+
+              const stockPnl =
+                Number(stock.pnl) ||
+                curValue - investment;
+
+              const isProfit = stockPnl >= 0;
+
+              const profClass = isProfit
+                ? "profit"
+                : "loss";
+
+              const dayChange = stock.day || "0.00%";
+
+              const dayClass = dayChange.startsWith("-")
+                ? "loss"
+                : "profit";
 
               return (
-                <tr key={index}>
+                <tr key={stock._id}>
                   <td>{stock.name}</td>
-                  <td>{stock.qty}</td>
-                  <td>{stock.avg.toFixed(2)}</td>
-                  <td>{stock.price.toFixed(2)}</td>
-                  <td>{curValue.toFixed(2)}</td>
-                  <td className={profClass}>
-                    {(curValue - stock.avg * stock.qty).toFixed(2)}
+
+                  <td>{qty}</td>
+
+                  <td>
+                    ₹{avg.toFixed(2)}
                   </td>
-                  <td className={profClass}>{stock.net}</td>
-                  <td className={dayClass}>{stock.day}</td>
+
+                  <td>
+                    ₹{price.toFixed(2)}
+                  </td>
+
+                  <td>
+                    ₹{curValue.toFixed(2)}
+                  </td>
+
+                  <td className={profClass}>
+                    ₹{stockPnl.toFixed(2)}
+                  </td>
+
+                  <td className={profClass}>
+                    {stock.net || "0.00%"}
+                  </td>
+
+                  <td className={dayClass}>
+                    {dayChange}
+                  </td>
                 </tr>
               );
             })}
@@ -89,24 +204,37 @@ const Holdings = () => {
         </table>
       </div>
 
+      {/* Portfolio Summary */}
+
       <div className="row">
+
         <div className="col">
           <h5>
-            29,875.<span>55</span>{" "}
+            ₹{totalInvestment.toFixed(2)}
           </h5>
+
           <p>Total investment</p>
         </div>
+
         <div className="col">
           <h5>
-            31,428.<span>95</span>{" "}
+            ₹{currentValue.toFixed(2)}
           </h5>
+
           <p>Current value</p>
         </div>
+
         <div className="col">
-          <h5>1,553.40 (+5.20%)</h5>
+          <h5 className={pnl >= 0 ? "profit" : "loss"}>
+            ₹{pnl.toFixed(2)}{" "}
+            ({pnlPercent.toFixed(2)}%)
+          </h5>
+
           <p>P&L</p>
         </div>
+
       </div>
+
       <VerticalGraph data={data} />
     </>
   );

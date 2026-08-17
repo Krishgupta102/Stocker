@@ -92,11 +92,56 @@ app.get("/api/stocks/batch", async (req, res) => {
 // Fetch holdings
 app.get("/allHoldings", async (req, res) => {
   try {
-    const allHoldings = await HoldingsModel.find({});
-    res.json(allHoldings);
+    const holdings = await HoldingsModel.find({}).lean();
+
+    const symbols = holdings.map((holding) =>
+      stockApi.toYahooSymbol(holding.name)
+    );
+
+    const liveStocks = await stockApi.getMultipleStocks(symbols);
+
+    const livePriceMap = new Map(
+      liveStocks.map((stock) => [stock.name, stock])
+    );
+
+    const updatedHoldings = holdings.map((holding) => {
+      const liveStock = livePriceMap.get(holding.name);
+
+      if (!liveStock) {
+        return holding;
+      }
+
+      const currentPrice = liveStock.price;
+      const investment = holding.avg * holding.qty;
+      const currentValue = currentPrice * holding.qty;
+      const pnl = currentValue - investment;
+
+      const pnlPercent =
+        investment > 0 ? (pnl / investment) * 100 : 0;
+
+      return {
+        ...holding,
+        price: currentPrice,
+        net: `${pnlPercent >= 0 ? "+" : ""}${pnlPercent.toFixed(2)}%`,
+        day: liveStock.percent,
+        isDown: liveStock.isDown,
+        change: liveStock.change,
+        previousClose: liveStock.previousClose,
+        dayHigh: liveStock.dayHigh,
+        dayLow: liveStock.dayLow,
+        investment,
+        currentValue,
+        pnl,
+        pnlPercent,
+      };
+    });
+
+    res.json(updatedHoldings);
   } catch (err) {
     console.error("Error fetching holdings:", err);
-    res.status(500).json({ error: "Failed to fetch holdings" });
+    res.status(500).json({
+      error: "Failed to fetch holdings",
+    });
   }
 });
 

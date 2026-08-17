@@ -26,16 +26,22 @@ const Summary = () => {
     };
   }, []);
 
-  let totalInvestment = 0;
-  let currentValue = 0;
+  const totalInvestment = allHoldings.reduce(
+    (total, stock) => total + stock.avg * stock.qty,
+    0
+  );
 
-  allHoldings.forEach((stock) => {
-    totalInvestment += stock.avg * stock.qty;
-    currentValue += stock.price * stock.qty;
-  });
+  const currentValue = allHoldings.reduce(
+    (total, stock) => total + stock.price * stock.qty,
+    0
+  );
 
   const pnl = currentValue - totalInvestment;
-  const pnlPercent = totalInvestment > 0 ? (pnl / totalInvestment) * 100 : 0;
+
+  const pnlPercent =
+    totalInvestment > 0
+      ? (pnl / totalInvestment) * 100
+      : 0;
 
   return (
     <>
