@@ -94,65 +94,126 @@ app.get("/allHoldings", async (req, res) => {
   try {
     const holdings = await HoldingsModel.find({}).lean();
 
-    const symbols = holdings.map((holding) =>
-      stockApi.toYahooSymbol(holding.name)
-    );
+    if (holdings.length === 0) {
+      return res.json([]);
+    }
 
-    const liveStocks = await stockApi.getMultipleStocks(symbols);
+    // ----------------------------------------
+    // Get unique stock symbols
+    // ----------------------------------------
 
-    const livePriceMap = new Map(
-      liveStocks.map((stock) => [stock.name, stock])
-    );
+    const symbols = [
+      ...new Set(
+        holdings.map((holding) =>
+          stockApi.toYahooSymbol(holding.name)
+        )
+      ),
+    ];
+
+    // ----------------------------------------
+    // Fetch live prices
+    // ----------------------------------------
+
+    const liveStocks =
+      await stockApi.getMultipleStocks(symbols);
+
+    // ----------------------------------------
+    // Create lookup map
+    // ----------------------------------------
+
+    const livePriceMap = new Map();
+
+    liveStocks.forEach((stock) => {
+      livePriceMap.set(stock.name, stock);
+    });
+
+    // ----------------------------------------
+    // Calculate portfolio values
+    // ----------------------------------------
 
     const updatedHoldings = holdings.map((holding) => {
       const liveStock = livePriceMap.get(holding.name);
 
-      if (!liveStock) {
-        return holding;
-      }
+      const qty = Number(holding.qty) || 0;
+      const avg = Number(holding.avg) || 0;
 
-      const currentPrice = liveStock.price;
-      const investment = holding.avg * holding.qty;
-      const currentValue = currentPrice * holding.qty;
-      const pnl = currentValue - investment;
+      // If live price isn't available,
+      // keep the stored price.
+      const currentPrice =
+        liveStock?.price != null
+          ? Number(liveStock.price)
+          : Number(holding.price) || 0;
 
+      // Investment
+      const investment = avg * qty;
+
+      // Current market value
+      const currentValue =
+        currentPrice * qty;
+
+      // Profit / Loss
+      const pnl =
+        currentValue - investment;
+
+      // Profit / Loss percentage
       const pnlPercent =
-        investment > 0 ? (pnl / investment) * 100 : 0;
+        investment > 0
+          ? (pnl / investment) * 100
+          : 0;
+
+      // Day change
+      const dayPercent =
+        liveStock?.percent || "0.00%";
 
       return {
         ...holding,
+
+        // Live data
         price: currentPrice,
-        net: `${pnlPercent >= 0 ? "+" : ""}${pnlPercent.toFixed(2)}%`,
-        day: liveStock.percent,
-        isDown: liveStock.isDown,
-        change: liveStock.change,
-        previousClose: liveStock.previousClose,
-        dayHigh: liveStock.dayHigh,
-        dayLow: liveStock.dayLow,
+
+        change:
+          liveStock?.change || 0,
+
+        previousClose:
+          liveStock?.previousClose || 0,
+
+        dayHigh:
+          liveStock?.dayHigh || 0,
+
+        dayLow:
+          liveStock?.dayLow || 0,
+
+        isDown:
+          liveStock?.isDown || false,
+
+        // Portfolio calculations
         investment,
+
         currentValue,
+
         pnl,
+
         pnlPercent,
+
+        // Display values
+        net:
+          `${pnlPercent >= 0 ? "+" : ""}${pnlPercent.toFixed(2)}%`,
+
+        day: dayPercent,
       };
     });
 
     res.json(updatedHoldings);
+
   } catch (err) {
-    console.error("Error fetching holdings:", err);
+    console.error(
+      "Error fetching holdings:",
+      err
+    );
+
     res.status(500).json({
       error: "Failed to fetch holdings",
     });
-  }
-});
-
-// Fetch positions
-app.get("/allPositions", async (req, res) => {
-  try {
-    const allPositions = await PositionsModel.find({});
-    res.json(allPositions);
-  } catch (err) {
-    console.error("Error fetching positions:", err);
-    res.status(500).json({ error: "Failed to fetch positions" });
   }
 });
 

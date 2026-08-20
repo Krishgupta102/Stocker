@@ -4,8 +4,7 @@ import { VerticalGraph } from "./VerticalGraph";
 import "../App.css";
 
 const api = axios.create({
-  baseURL:
-    import.meta.env.VITE_API_URL || "http://localhost:3002",
+  baseURL: import.meta.env.VITE_API_URL || "http://localhost:3002",
 });
 
 const Holdings = () => {
@@ -24,7 +23,7 @@ const Holdings = () => {
         const res = await api.get("/allHoldings");
 
         if (mounted) {
-          setAllHoldings(res.data || []);
+          setAllHoldings(Array.isArray(res.data) ? res.data : []);
         }
       } catch (err) {
         console.error("Failed to fetch holdings:", err);
@@ -47,24 +46,30 @@ const Holdings = () => {
     };
   }, []);
 
-  // -----------------------------
-  // Calculate portfolio totals
-  // -----------------------------
+  // ==========================================
+  // Portfolio calculations
+  // ==========================================
 
   const totalInvestment = allHoldings.reduce((total, stock) => {
+    const avg = Number(stock.avg) || 0;
+    const qty = Number(stock.qty) || 0;
+
     const investment =
-      Number(stock.investment) ||
-      Number(stock.avg) * Number(stock.qty) ||
-      0;
+      stock.investment != null
+        ? Number(stock.investment)
+        : avg * qty;
 
     return total + investment;
   }, 0);
 
   const currentValue = allHoldings.reduce((total, stock) => {
+    const price = Number(stock.price) || 0;
+    const qty = Number(stock.qty) || 0;
+
     const value =
-      Number(stock.currentValue) ||
-      Number(stock.price) * Number(stock.qty) ||
-      0;
+      stock.currentValue != null
+        ? Number(stock.currentValue)
+        : price * qty;
 
     return total + value;
   }, 0);
@@ -76,9 +81,9 @@ const Holdings = () => {
       ? (pnl / totalInvestment) * 100
       : 0;
 
-  // -----------------------------
+  // ==========================================
   // Chart data
-  // -----------------------------
+  // ==========================================
 
   const labels = allHoldings.map((stock) => stock.name);
 
@@ -95,9 +100,9 @@ const Holdings = () => {
     ],
   };
 
-  // -----------------------------
+  // ==========================================
   // Loading state
-  // -----------------------------
+  // ==========================================
 
   if (loading) {
     return (
@@ -107,9 +112,9 @@ const Holdings = () => {
     );
   }
 
-  // -----------------------------
+  // ==========================================
   // Error state
-  // -----------------------------
+  // ==========================================
 
   if (error) {
     return (
@@ -119,9 +124,28 @@ const Holdings = () => {
     );
   }
 
+  // ==========================================
+  // Empty state
+  // ==========================================
+
+  if (allHoldings.length === 0) {
+    return (
+      <div className="empty-state">
+        <h2>Holdings (0)</h2>
+        <p>You don't have any holdings yet.</p>
+      </div>
+    );
+  }
+
+  // ==========================================
+  // Main UI
+  // ==========================================
+
   return (
     <>
       <h2>Holdings ({allHoldings.length})</h2>
+
+      {/* Holdings Table */}
 
       <div className="order-table">
         <table>
@@ -144,55 +168,115 @@ const Holdings = () => {
               const avg = Number(stock.avg) || 0;
               const price = Number(stock.price) || 0;
 
+              // Investment
               const investment =
-                Number(stock.investment) ||
-                avg * qty;
+                stock.investment != null
+                  ? Number(stock.investment)
+                  : avg * qty;
 
+              // Current value
               const curValue =
-                Number(stock.currentValue) ||
-                price * qty;
+                stock.currentValue != null
+                  ? Number(stock.currentValue)
+                  : price * qty;
 
+              // Profit / Loss
               const stockPnl =
-                Number(stock.pnl) ||
-                curValue - investment;
+                stock.pnl != null
+                  ? Number(stock.pnl)
+                  : curValue - investment;
 
-              const isProfit = stockPnl >= 0;
+              const stockPnlPercent =
+                investment > 0
+                  ? (stockPnl / investment) * 100
+                  : 0;
 
-              const profClass = isProfit
-                ? "profit"
-                : "loss";
+              // Profit / Loss class
+              const profClass =
+                stockPnl >= 0 ? "profit" : "loss";
 
-              const dayChange = stock.day || "0.00%";
+              // Day change
+              const dayChange =
+                stock.day != null
+                  ? String(stock.day)
+                  : "0.00%";
 
-              const dayClass = dayChange.startsWith("-")
-                ? "loss"
-                : "profit";
+              const dayChangeValue =
+                parseFloat(dayChange.replace("%", "")) || 0;
+
+              const dayClass =
+                dayChangeValue >= 0
+                  ? "profit"
+                  : "loss";
+
+              // Net change
+              const netChange =
+                stock.net != null
+                  ? String(stock.net)
+                  : "0.00%";
+
+              const netChangeValue =
+                parseFloat(netChange.replace("%", "")) || 0;
+
+              const netClass =
+                netChangeValue >= 0
+                  ? "profit"
+                  : "loss";
 
               return (
-                <tr key={stock._id}>
-                  <td>{stock.name}</td>
+                <tr key={stock._id || `${stock.name}-${stock.qty}`}>
+                  {/* Instrument */}
 
-                  <td>{qty}</td>
+                  <td>
+                    {stock.name}
+                  </td>
+
+                  {/* Quantity */}
+
+                  <td>
+                    {qty}
+                  </td>
+
+                  {/* Average Cost */}
 
                   <td>
                     ₹{avg.toFixed(2)}
                   </td>
 
+                  {/* LTP */}
+
                   <td>
                     ₹{price.toFixed(2)}
                   </td>
+
+                  {/* Current Value */}
 
                   <td>
                     ₹{curValue.toFixed(2)}
                   </td>
 
-                  <td className={profClass}>
-                    ₹{stockPnl.toFixed(2)}
-                  </td>
+                  {/* P&L */}
 
                   <td className={profClass}>
-                    {stock.net || "0.00%"}
+                    <div>
+                      ₹{stockPnl.toFixed(2)}
+                    </div>
+
+                    <small>
+                      {stockPnlPercent >= 0
+                        ? "+"
+                        : ""}
+                      {stockPnlPercent.toFixed(2)}%
+                    </small>
                   </td>
+
+                  {/* Net Change */}
+
+                  <td className={netClass}>
+                    {netChange}
+                  </td>
+
+                  {/* Day Change */}
 
                   <td className={dayClass}>
                     {dayChange}
@@ -204,9 +288,13 @@ const Holdings = () => {
         </table>
       </div>
 
-      {/* Portfolio Summary */}
+      {/* ==========================================
+          Portfolio Summary
+          ========================================== */}
 
       <div className="row">
+
+        {/* Total Investment */}
 
         <div className="col">
           <h5>
@@ -216,6 +304,8 @@ const Holdings = () => {
           <p>Total investment</p>
         </div>
 
+        {/* Current Value */}
+
         <div className="col">
           <h5>
             ₹{currentValue.toFixed(2)}
@@ -224,16 +314,29 @@ const Holdings = () => {
           <p>Current value</p>
         </div>
 
+        {/* Total P&L */}
+
         <div className="col">
-          <h5 className={pnl >= 0 ? "profit" : "loss"}>
+          <h5
+            className={
+              pnl >= 0
+                ? "profit"
+                : "loss"
+            }
+          >
             ₹{pnl.toFixed(2)}{" "}
-            ({pnlPercent.toFixed(2)}%)
+            <span>
+              ({pnl >= 0 ? "+" : ""}
+              {pnlPercent.toFixed(2)}%)
+            </span>
           </h5>
 
           <p>P&L</p>
         </div>
 
       </div>
+
+      {/* Portfolio Chart */}
 
       <VerticalGraph data={data} />
     </>
