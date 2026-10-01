@@ -12,6 +12,8 @@ const stockApi = require("./services/stockApi");
 
 const PORT = process.env.PORT || 3002;
 const uri = process.env.MONGO_URL;
+const http = require("http");
+const { setupWebSocket } = require("./websocket");
 
 const app = express();
 
@@ -47,22 +49,6 @@ app.get("/api/stock/:symbol", async (req, res) => {
     res.status(500).json({ error: "Failed to fetch stock data" });
   }
 });
-
-// app.get("/api/stock/:symbol", async (req, res) => {
-//   try {
-//     const { symbol } = req.params;
-//     const yahooSymbol = stockApi.toYahooSymbol(symbol);
-
-//     console.time(`yahoo-fetch-${symbol}`);
-//     const stockData = await stockApi.getStockPrice(yahooSymbol);
-//     console.timeEnd(`yahoo-fetch-${symbol}`);
-
-//     res.json(stockData);
-//   } catch (error) {
-//     console.error("Error fetching stock:", error);
-//     res.status(500).json({ error: "Failed to fetch stock data" });
-//   }
-// });
 
 // Fetch multiple stocks in batch
 app.get("/api/stocks/batch", async (req, res) => {
@@ -378,8 +364,13 @@ mongoose
   .then(() => {
     console.log("DB connected successfully");
 
-    app.listen(PORT, () => {
+    const server = http.createServer(app);
+
+    setupWebSocket(server);
+
+    server.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
+      console.log(`WebSocket running on ws://localhost:${PORT}/ws`);
     });
   })
   .catch((err) => {
