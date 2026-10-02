@@ -9,17 +9,24 @@ function setupWebSocket(server) {
     path: "/ws",
   });
 
+  // ======================================================
+  // CLIENT CONNECTION
+  // ======================================================
+
   wss.on("connection", (ws) => {
     console.log("WebSocket client connected");
 
     clients.add(ws);
 
-    // Store subscribed symbols for this client
+    // Stock-price subscriptions
     ws.subscriptions = [];
 
-    // -----------------------------
+    // Holdings subscriptions
+    ws.holdingSubscriptions = [];
+
+    // ====================================================
     // HEARTBEAT
-    // -----------------------------
+    // ====================================================
 
     ws.isAlive = true;
 
@@ -27,9 +34,9 @@ function setupWebSocket(server) {
       ws.isAlive = true;
     });
 
-    // -----------------------------
+    // ====================================================
     // CLIENT MESSAGES
-    // -----------------------------
+    // ====================================================
 
     ws.on("message", (message) => {
       try {
@@ -37,9 +44,9 @@ function setupWebSocket(server) {
 
         console.log("WebSocket message:", data);
 
-        // -----------------------------
-        // SUBSCRIBE
-        // -----------------------------
+        // ------------------------------------------------
+        // STOCK PRICE SUBSCRIBE
+        // ------------------------------------------------
 
         if (data.type === "SUBSCRIBE") {
           ws.subscriptions = Array.isArray(data.symbols)
@@ -61,18 +68,67 @@ function setupWebSocket(server) {
           );
         }
 
-        // -----------------------------
-        // UNSUBSCRIBE
-        // -----------------------------
+        // ------------------------------------------------
+        // STOCK PRICE UNSUBSCRIBE
+        // ------------------------------------------------
 
         if (data.type === "UNSUBSCRIBE") {
           ws.subscriptions = [];
 
-          console.log("Client unsubscribed from all symbols");
+          console.log(
+            "Client unsubscribed from all symbols"
+          );
 
           ws.send(
             JSON.stringify({
               type: "UNSUBSCRIBED",
+              data: {
+                symbols: [],
+              },
+            })
+          );
+        }
+
+        // ------------------------------------------------
+        // HOLDINGS SUBSCRIBE
+        // ------------------------------------------------
+
+        if (data.type === "HOLDINGS_SUBSCRIBE") {
+          ws.holdingSubscriptions = Array.isArray(
+            data.symbols
+          )
+            ? data.symbols
+            : [];
+
+          console.log(
+            "Client subscribed to holdings:",
+            ws.holdingSubscriptions
+          );
+
+          ws.send(
+            JSON.stringify({
+              type: "HOLDINGS_SUBSCRIBED",
+              data: {
+                symbols: ws.holdingSubscriptions,
+              },
+            })
+          );
+        }
+
+        // ------------------------------------------------
+        // HOLDINGS UNSUBSCRIBE
+        // ------------------------------------------------
+
+        if (data.type === "HOLDINGS_UNSUBSCRIBE") {
+          ws.holdingSubscriptions = [];
+
+          console.log(
+            "Client unsubscribed from holdings"
+          );
+
+          ws.send(
+            JSON.stringify({
+              type: "HOLDINGS_UNSUBSCRIBED",
               data: {
                 symbols: [],
               },
@@ -87,19 +143,21 @@ function setupWebSocket(server) {
       }
     });
 
-    // -----------------------------
+    // ====================================================
     // CLIENT DISCONNECTED
-    // -----------------------------
+    // ====================================================
 
     ws.on("close", () => {
-      console.log("WebSocket client disconnected");
+      console.log(
+        "WebSocket client disconnected"
+      );
 
       clients.delete(ws);
     });
 
-    // -----------------------------
+    // ====================================================
     // SOCKET ERROR
-    // -----------------------------
+    // ====================================================
 
     ws.on("error", (error) => {
       console.error(
@@ -110,9 +168,9 @@ function setupWebSocket(server) {
       clients.delete(ws);
     });
 
-    // -----------------------------
+    // ====================================================
     // INITIAL CONNECTION MESSAGE
-    // -----------------------------
+    // ====================================================
 
     ws.send(
       JSON.stringify({
@@ -123,9 +181,9 @@ function setupWebSocket(server) {
     );
   });
 
-  // -----------------------------
+  // ======================================================
   // HEARTBEAT INTERVAL
-  // -----------------------------
+  // ======================================================
 
   const heartbeatInterval = setInterval(() => {
     wss.clients.forEach((ws) => {
@@ -143,17 +201,17 @@ function setupWebSocket(server) {
     });
   }, 30000);
 
-  // -----------------------------
+  // ======================================================
   // PRICE UPDATE INTERVAL
-  // -----------------------------
+  // ======================================================
 
   const priceInterval = setInterval(() => {
     updateSubscribedPrices();
   }, 10000);
 
-  // -----------------------------
+  // ======================================================
   // CLEANUP
-  // -----------------------------
+  // ======================================================
 
   wss.on("close", () => {
     clearInterval(heartbeatInterval);
@@ -170,8 +228,8 @@ function setupWebSocket(server) {
 async function updateSubscribedPrices() {
   const symbols = new Set();
 
-  // Collect all unique symbols
-  // subscribed by all connected clients
+  // Collect all unique symbols subscribed
+  // by connected clients
 
   clients.forEach((ws) => {
     if (
@@ -205,7 +263,20 @@ async function updateSubscribedPrices() {
           }
         );
 
+      // --------------------------------------------------
+      // WATCHLIST PRICE UPDATE
+      // --------------------------------------------------
+
       broadcastToSubscribers(
+        symbol,
+        stockData
+      );
+
+      // --------------------------------------------------
+      // HOLDINGS PRICE UPDATE
+      // --------------------------------------------------
+
+      broadcastHoldingPriceUpdate(
         symbol,
         stockData
       );
@@ -219,10 +290,12 @@ async function updateSubscribedPrices() {
 }
 
 // ======================================================
-// BROADCAST PRICE UPDATE
+// BROADCAST STOCK PRICE UPDATE
 // ======================================================
 
 function broadcastToSubscribers(symbol, data) {
+  let broadcastCount = 0;
+
   clients.forEach((ws) => {
     if (
       ws.readyState === WebSocket.OPEN &&
@@ -235,8 +308,50 @@ function broadcastToSubscribers(symbol, data) {
           data,
         })
       );
+
+      broadcastCount++;
     }
   });
+
+  if (broadcastCount > 0) {
+    console.log(
+      `Broadcasted ${symbol} update to ${broadcastCount} client(s)`
+    );
+  }
+}
+
+// ======================================================
+// BROADCAST HOLDING PRICE UPDATE
+// ======================================================
+
+function broadcastHoldingPriceUpdate(symbol, data) {
+  let broadcastCount = 0;
+
+  clients.forEach((ws) => {
+    if (
+      ws.readyState === WebSocket.OPEN &&
+      Array.isArray(ws.holdingSubscriptions) &&
+      ws.holdingSubscriptions.includes(symbol)
+    ) {
+      ws.send(
+        JSON.stringify({
+          type: "HOLDING_PRICE_UPDATE",
+          data: {
+            ...data,
+            symbol,
+          },
+        })
+      );
+
+      broadcastCount++;
+    }
+  });
+
+  if (broadcastCount > 0) {
+    console.log(
+      `Broadcasted holding price for ${symbol} to ${broadcastCount} client(s)`
+    );
+  }
 }
 
 // ======================================================
@@ -246,4 +361,5 @@ function broadcastToSubscribers(symbol, data) {
 module.exports = {
   setupWebSocket,
   broadcastToSubscribers,
+  broadcastHoldingPriceUpdate,
 };

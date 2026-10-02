@@ -1,56 +1,122 @@
-const axios = require('axios');
+const axios = require("axios");
 
-// Cache to store stock data
+// ======================================================
+// CACHE
+// ======================================================
+
 const cache = new Map();
 
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
-/**
- * Fetch live stock price from Yahoo Finance.
- *
- * @param {string} symbol
- * @param {Object} options
- * @param {boolean} options.forceRefresh
- * @returns {Promise<Object>}
- */
-async function getStockPrice(symbol, options = {}) {
-    try {
-        const { forceRefresh = false } = options;
+// When Yahoo rate-limits us, don't immediately retry
+// the same symbol.
+const RATE_LIMIT_BACKOFF = 60 * 1000; // 1 minute
 
-        // ----------------------------------------
+// Keep track of temporarily rate-limited symbols.
+const rateLimitedUntil = new Map();
+
+// ======================================================
+// GET STOCK PRICE
+// ======================================================
+
+async function getStockPrice(symbol, options = {}) {
+    const {
+        forceRefresh = false,
+    } = options;
+
+    try {
+        // ------------------------------------------------
+        // CHECK RATE LIMIT BACKOFF
+        // ------------------------------------------------
+
+        const blockedUntil =
+            rateLimitedUntil.get(symbol);
+
+        if (
+            blockedUntil &&
+            Date.now() < blockedUntil
+        ) {
+            console.log(
+                `Skipping ${symbol} because Yahoo rate limit is active`
+            );
+
+            const cached =
+                cache.get(symbol);
+
+            if (cached) {
+                return cached.data;
+            }
+
+            return {
+                name: symbol
+                    .replace(".NS", "")
+                    .replace(".BO", ""),
+
+                symbol,
+
+                price: 0,
+                percent: "0.00%",
+                isDown: false,
+                change: 0,
+                previousClose: 0,
+                dayHigh: 0,
+                dayLow: 0,
+
+                error: "Yahoo Finance rate limited",
+            };
+        }
+
+        // ------------------------------------------------
         // CHECK CACHE
-        // ----------------------------------------
+        // ------------------------------------------------
 
         const cached = cache.get(symbol);
 
         if (
             !forceRefresh &&
             cached &&
-            Date.now() - cached.timestamp < CACHE_DURATION
+            Date.now() - cached.timestamp <
+                CACHE_DURATION
         ) {
             return cached.data;
         }
 
-        // ----------------------------------------
-        // FETCH FROM YAHOO FINANCE
-        // ----------------------------------------
+        // ------------------------------------------------
+        // YAHOO FINANCE REQUEST
+        // ------------------------------------------------
 
         const url =
-            `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}` +
+            `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}` +
             `?interval=1d&range=1d`;
 
         const response = await axios.get(url, {
+            timeout: 10000,
+
             headers: {
-                'User-Agent':
-                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
+                "User-Agent":
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/154.0.0.0 Safari/537.36",
+
+                Accept:
+                    "application/json,text/plain,*/*",
+            },
         });
 
-        const result = response.data.chart.result[0];
+        // ------------------------------------------------
+        // CLEAR RATE LIMIT STATE
+        // ------------------------------------------------
+
+        rateLimitedUntil.delete(symbol);
+
+        // ------------------------------------------------
+        // PARSE RESPONSE
+        // ------------------------------------------------
+
+        const result =
+            response.data?.chart?.result?.[0];
 
         if (!result) {
             throw new Error(
-                `No data returned for ${symbol}`
+                `No Yahoo Finance data returned for ${symbol}`
             );
         }
 
@@ -72,14 +138,14 @@ async function getStockPrice(symbol, options = {}) {
                 ? (change / previousClose) * 100
                 : 0;
 
-        // ----------------------------------------
+        // ------------------------------------------------
         // FORMAT STOCK DATA
-        // ----------------------------------------
+        // ------------------------------------------------
 
         const stockData = {
             name: symbol
-                .replace('.NS', '')
-                .replace('.BO', ''),
+                .replace(".NS", "")
+                .replace(".BO", ""),
 
             symbol,
 
@@ -87,8 +153,8 @@ async function getStockPrice(symbol, options = {}) {
 
             percent:
                 changePercent !== 0
-                    ? `${changePercent > 0 ? '+' : ''}${changePercent.toFixed(2)}%`
-                    : '0.00%',
+                    ? `${changePercent > 0 ? "+" : ""}${changePercent.toFixed(2)}%`
+                    : "0.00%",
 
             isDown: changePercent < 0,
 
@@ -105,9 +171,9 @@ async function getStockPrice(symbol, options = {}) {
             timestamp: Date.now(),
         };
 
-        // ----------------------------------------
-        // UPDATE CACHE
-        // ----------------------------------------
+        // ------------------------------------------------
+        // SAVE TO CACHE
+        // ------------------------------------------------
 
         cache.set(symbol, {
             data: stockData,
@@ -117,16 +183,65 @@ async function getStockPrice(symbol, options = {}) {
         return stockData;
 
     } catch (error) {
+
+        // ==================================================
+        // RATE LIMIT
+        // ==================================================
+
+        if (
+            error.response?.status === 429
+        ) {
+            const retryUntil =
+                Date.now() +
+                RATE_LIMIT_BACKOFF;
+
+            rateLimitedUntil.set(
+                symbol,
+                retryUntil
+            );
+
+            console.warn(
+                `Yahoo Finance rate limited ${symbol}. Backing off for 60 seconds.`
+            );
+
+            const cached =
+                cache.get(symbol);
+
+            if (cached) {
+                return cached.data;
+            }
+
+            return {
+                name: symbol
+                    .replace(".NS", "")
+                    .replace(".BO", ""),
+
+                symbol,
+
+                price: 0,
+                percent: "0.00%",
+                isDown: false,
+                change: 0,
+                previousClose: 0,
+                dayHigh: 0,
+                dayLow: 0,
+
+                error: "Yahoo Finance rate limited",
+            };
+        }
+
+        // ==================================================
+        // OTHER ERRORS
+        // ==================================================
+
         console.error(
             `Error fetching stock ${symbol}:`,
             error.message
         );
 
-        // ----------------------------------------
-        // FALLBACK TO CACHED DATA
-        // ----------------------------------------
-
-        const cached = cache.get(symbol);
+        // Return cached data if available.
+        const cached =
+            cache.get(symbol);
 
         if (cached) {
             console.log(
@@ -136,60 +251,61 @@ async function getStockPrice(symbol, options = {}) {
             return cached.data;
         }
 
-        // ----------------------------------------
-        // DEFAULT RESPONSE
-        // ----------------------------------------
-
+        // Default response.
         return {
             name: symbol
-                .replace('.NS', '')
-                .replace('.BO', ''),
+                .replace(".NS", "")
+                .replace(".BO", ""),
 
             symbol,
 
             price: 0,
-
-            percent: '0.00%',
-
+            percent: "0.00%",
             isDown: false,
-
             change: 0,
-
             previousClose: 0,
-
             dayHigh: 0,
-
             dayLow: 0,
 
-            timestamp: Date.now(),
-
-            error: 'Failed to fetch live data',
+            error:
+                "Failed to fetch live data",
         };
     }
 }
 
-/**
- * Fetch multiple stocks in batch.
- *
- * @param {Array<string>} symbols
- * @param {Object} options
- * @returns {Promise<Array<Object>>}
- */
+// ======================================================
+// GET MULTIPLE STOCKS
+// ======================================================
+
 async function getMultipleStocks(
     symbols,
     options = {}
 ) {
     try {
-        const promises = symbols.map(
-            (symbol) =>
-                getStockPrice(symbol, options)
-        );
+        const results =
+            await Promise.allSettled(
+                symbols.map((symbol) =>
+                    getStockPrice(
+                        symbol,
+                        options
+                    )
+                )
+            );
 
-        return await Promise.all(promises);
+        return results
+            .filter(
+                (result) =>
+                    result.status ===
+                    "fulfilled"
+            )
+            .map(
+                (result) =>
+                    result.value
+            );
 
     } catch (error) {
         console.error(
-            'Error fetching multiple stocks:',
+            "Error fetching multiple stocks:",
             error.message
         );
 
@@ -197,23 +313,24 @@ async function getMultipleStocks(
     }
 }
 
-/**
- * Convert Indian stock symbol
- * to Yahoo Finance format.
- *
- * Example:
- * INFY → INFY.NS
- */
+// ======================================================
+// CONVERT SYMBOL
+// ======================================================
+
 function toYahooSymbol(symbol) {
     if (
-        symbol.endsWith('.NS') ||
-        symbol.endsWith('.BO')
+        symbol.endsWith(".NS") ||
+        symbol.endsWith(".BO")
     ) {
         return symbol;
     }
 
     return `${symbol}.NS`;
 }
+
+// ======================================================
+// EXPORTS
+// ======================================================
 
 module.exports = {
     getStockPrice,
