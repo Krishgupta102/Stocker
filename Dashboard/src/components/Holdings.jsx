@@ -7,10 +7,17 @@ const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || "http://localhost:3002",
 });
 
+const WS_URL =
+  import.meta.env.VITE_WS_URL || "ws://localhost:3002/ws";
+
 const Holdings = () => {
   const [allHoldings, setAllHoldings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  // ======================================================
+  // FETCH INITIAL HOLDINGS
+  // ======================================================
 
   useEffect(() => {
     let mounted = true;
@@ -23,10 +30,17 @@ const Holdings = () => {
         const res = await api.get("/allHoldings");
 
         if (mounted) {
-          setAllHoldings(Array.isArray(res.data) ? res.data : []);
+          setAllHoldings(
+            Array.isArray(res.data)
+              ? res.data
+              : []
+          );
         }
       } catch (err) {
-        console.error("Failed to fetch holdings:", err);
+        console.error(
+          "Failed to fetch holdings:",
+          err
+        );
 
         if (mounted) {
           setError("Failed to load holdings");
@@ -46,63 +60,358 @@ const Holdings = () => {
     };
   }, []);
 
-  // ==========================================
-  // Portfolio calculations
-  // ==========================================
+  // ======================================================
+  // WEBSOCKET - LIVE HOLDING PRICE UPDATES
+  // ======================================================
 
-  const totalInvestment = allHoldings.reduce((total, stock) => {
-    const avg = Number(stock.avg) || 0;
-    const qty = Number(stock.qty) || 0;
+  useEffect(() => {
+    // Don't create a WebSocket if there are no holdings
+    if (allHoldings.length === 0) {
+      return;
+    }
 
-    const investment =
-      stock.investment != null
-        ? Number(stock.investment)
-        : avg * qty;
+    console.log(
+      "Connecting Holdings WebSocket..."
+    );
 
-    return total + investment;
-  }, 0);
+    const ws = new WebSocket(WS_URL);
 
-  const currentValue = allHoldings.reduce((total, stock) => {
-    const price = Number(stock.price) || 0;
-    const qty = Number(stock.qty) || 0;
+    ws.onopen = () => {
+      console.log(
+        "Holdings WebSocket connected"
+      );
 
-    const value =
-      stock.currentValue != null
-        ? Number(stock.currentValue)
-        : price * qty;
+      // Convert holdings names into Yahoo symbols
+      const symbols = allHoldings.map((stock) => {
+        const name = String(stock.name)
+          .trim()
+          .toUpperCase();
 
-    return total + value;
-  }, 0);
+        // Already a Yahoo symbol
+        if (
+          name.endsWith(".NS") ||
+          name.endsWith(".BO")
+        ) {
+          return name;
+        }
 
-  const pnl = currentValue - totalInvestment;
+        // Special symbol mapping
+        if (name === "HUL") {
+          return "HINDUNILVR.NS";
+        }
+
+        if (name === "M&M") {
+          return "M&M.NS";
+        }
+
+        // Default to NSE
+        return `${name}.NS`;
+      });
+
+      console.log(
+        "Subscribing holdings to:",
+        symbols
+      );
+
+      ws.send(
+        JSON.stringify({
+          type: "HOLDINGS_SUBSCRIBE",
+          symbols,
+        })
+      );
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const message = JSON.parse(
+          event.data
+        );
+
+        console.log(
+          "Holdings WebSocket message:",
+          message
+        );
+
+        // ==============================================
+        // HOLDINGS SUBSCRIPTION CONFIRMATION
+        // ==============================================
+
+        if (
+          message.type ===
+          "HOLDINGS_SUBSCRIBED"
+        ) {
+          console.log(
+            "Holdings subscribed:",
+            message.data?.symbols
+          );
+
+          return;
+        }
+
+        // ==============================================
+        // LIVE PRICE UPDATE
+        // ==============================================
+
+        if (
+          message.type ===
+          "HOLDING_PRICE_UPDATE"
+        ) {
+          const updatedData =
+            message.data;
+
+          if (!updatedData) {
+            return;
+          }
+
+          const symbol =
+            updatedData.symbol;
+
+          const livePrice =
+            Number(updatedData.price);
+
+          if (
+            !symbol ||
+            !Number.isFinite(livePrice) ||
+            livePrice <= 0
+          ) {
+            return;
+          }
+
+          console.log(
+            `Live holding price: ${symbol} → ₹${livePrice}`
+          );
+
+          // ============================================
+          // UPDATE HOLDING
+          // ============================================
+
+          setAllHoldings((currentHoldings) =>
+            currentHoldings.map((stock) => {
+              const stockName =
+                String(stock.name)
+                  .trim()
+                  .toUpperCase();
+
+              let stockSymbol;
+
+              if (
+                stockName.endsWith(".NS") ||
+                stockName.endsWith(".BO")
+              ) {
+                stockSymbol = stockName;
+              } else if (
+                stockName === "HUL"
+              ) {
+                stockSymbol =
+                  "HINDUNILVR.NS";
+              } else if (
+                stockName === "M&M"
+              ) {
+                stockSymbol =
+                  "M&M.NS";
+              } else {
+                stockSymbol =
+                  `${stockName}.NS`;
+              }
+
+              // Not this holding
+              if (stockSymbol !== symbol) {
+                return stock;
+              }
+
+              const qty =
+                Number(stock.qty) || 0;
+
+              const avg =
+                Number(stock.avg) || 0;
+
+              // ------------------------------------------
+              // Current market value
+              // ------------------------------------------
+
+              const currentValue =
+                livePrice * qty;
+
+              // ------------------------------------------
+              // Investment
+              // ------------------------------------------
+
+              const investment =
+                avg * qty;
+
+              // ------------------------------------------
+              // P&L
+              // ------------------------------------------
+
+              const pnl =
+                currentValue -
+                investment;
+
+              // ------------------------------------------
+              // P&L percentage
+              // ------------------------------------------
+
+              const pnlPercent =
+                investment > 0
+                  ? (pnl / investment) *
+                    100
+                  : 0;
+
+              return {
+                ...stock,
+
+                // Latest market price
+                price: livePrice,
+
+                // Calculated values
+                currentValue,
+                investment,
+                pnl: pnl,
+                pnlPercent,
+
+                // Keep net aligned with P&L %
+                net: pnlPercent,
+
+                // Preserve live day change
+                day:
+                  updatedData.percent ||
+                  stock.day ||
+                  "0.00%",
+              };
+            })
+          );
+        }
+      } catch (err) {
+        console.error(
+          "Holdings WebSocket message error:",
+          err
+        );
+      }
+    };
+
+    ws.onerror = (event) => {
+      console.error(
+        "Holdings WebSocket error:",
+        event
+      );
+    };
+
+    ws.onclose = () => {
+      console.log(
+        "Holdings WebSocket disconnected"
+      );
+    };
+
+    // ==============================================
+    // CLEANUP
+    // ==============================================
+
+    return () => {
+      console.log(
+        "Closing Holdings WebSocket..."
+      );
+
+      if (
+        ws.readyState ===
+        WebSocket.OPEN
+      ) {
+        ws.send(
+          JSON.stringify({
+            type:
+              "HOLDINGS_UNSUBSCRIBE",
+          })
+        );
+      }
+
+      ws.close();
+    };
+  }, [allHoldings.length]);
+
+  // ======================================================
+  // PORTFOLIO CALCULATIONS
+  // ======================================================
+
+  const totalInvestment =
+    allHoldings.reduce(
+      (total, stock) => {
+        const avg =
+          Number(stock.avg) || 0;
+
+        const qty =
+          Number(stock.qty) || 0;
+
+        const investment =
+          stock.investment != null
+            ? Number(
+                stock.investment
+              )
+            : avg * qty;
+
+        return total + investment;
+      },
+      0
+    );
+
+  const currentValue =
+    allHoldings.reduce(
+      (total, stock) => {
+        const price =
+          Number(stock.price) || 0;
+
+        const qty =
+          Number(stock.qty) || 0;
+
+        const value =
+          stock.currentValue != null
+            ? Number(
+                stock.currentValue
+              )
+            : price * qty;
+
+        return total + value;
+      },
+      0
+    );
+
+  const pnl =
+    currentValue -
+    totalInvestment;
 
   const pnlPercent =
     totalInvestment > 0
       ? (pnl / totalInvestment) * 100
       : 0;
 
-  // ==========================================
-  // Chart data
-  // ==========================================
+  // ======================================================
+  // CHART DATA
+  // ======================================================
 
-  const labels = allHoldings.map((stock) => stock.name);
+  const labels =
+    allHoldings.map(
+      (stock) => stock.name
+    );
 
   const data = {
     labels,
+
     datasets: [
       {
         label: "Stock Price",
+
         data: allHoldings.map(
-          (stock) => Number(stock.price) || 0
+          (stock) =>
+            Number(stock.price) || 0
         ),
-        backgroundColor: "rgba(255, 99, 132, 0.5)",
+
+        backgroundColor:
+          "rgba(255, 99, 132, 0.5)",
       },
     ],
   };
 
-  // ==========================================
-  // Loading state
-  // ==========================================
+  // ======================================================
+  // LOADING
+  // ======================================================
 
   if (loading) {
     return (
@@ -112,9 +421,9 @@ const Holdings = () => {
     );
   }
 
-  // ==========================================
-  // Error state
-  // ==========================================
+  // ======================================================
+  // ERROR
+  // ======================================================
 
   if (error) {
     return (
@@ -124,28 +433,38 @@ const Holdings = () => {
     );
   }
 
-  // ==========================================
-  // Empty state
-  // ==========================================
+  // ======================================================
+  // EMPTY
+  // ======================================================
 
   if (allHoldings.length === 0) {
     return (
       <div className="empty-state">
-        <h2>Holdings (0)</h2>
-        <p>You don't have any holdings yet.</p>
+        <h2>
+          Holdings (0)
+        </h2>
+
+        <p>
+          You don't have any
+          holdings yet.
+        </p>
       </div>
     );
   }
 
-  // ==========================================
-  // Main UI
-  // ==========================================
+  // ======================================================
+  // MAIN UI
+  // ======================================================
 
   return (
     <>
-      <h2>Holdings ({allHoldings.length})</h2>
+      <h2>
+        Holdings ({allHoldings.length})
+      </h2>
 
-      {/* Holdings Table */}
+      {/* ==================================================
+          HOLDINGS TABLE
+          ================================================== */}
 
       <div className="order-table">
         <table>
@@ -163,134 +482,217 @@ const Holdings = () => {
           </thead>
 
           <tbody>
-            {allHoldings.map((stock) => {
-              const qty = Number(stock.qty) || 0;
-              const avg = Number(stock.avg) || 0;
-              const price = Number(stock.price) || 0;
+            {allHoldings.map(
+              (stock) => {
+                const qty =
+                  Number(stock.qty) ||
+                  0;
 
-              // Investment
-              const investment =
-                stock.investment != null
-                  ? Number(stock.investment)
-                  : avg * qty;
+                const avg =
+                  Number(stock.avg) ||
+                  0;
 
-              // Current value
-              const curValue =
-                stock.currentValue != null
-                  ? Number(stock.currentValue)
-                  : price * qty;
+                const price =
+                  Number(stock.price) ||
+                  0;
 
-              // Profit / Loss
-              const stockPnl =
-                stock.pnl != null
-                  ? Number(stock.pnl)
-                  : curValue - investment;
+                // ----------------------------------------
+                // Investment
+                // ----------------------------------------
 
-              const stockPnlPercent =
-                investment > 0
-                  ? (stockPnl / investment) * 100
-                  : 0;
+                const investment =
+                  stock.investment != null
+                    ? Number(
+                        stock.investment
+                      )
+                    : avg * qty;
 
-              // Profit / Loss class
-              const profClass =
-                stockPnl >= 0 ? "profit" : "loss";
+                // ----------------------------------------
+                // Current value
+                // ----------------------------------------
 
-              // Day change
-              const dayChange =
-                stock.day != null
-                  ? String(stock.day)
-                  : "0.00%";
+                const curValue =
+                  stock.currentValue !=
+                  null
+                    ? Number(
+                        stock.currentValue
+                      )
+                    : price * qty;
 
-              const dayChangeValue =
-                parseFloat(dayChange.replace("%", "")) || 0;
+                // ----------------------------------------
+                // P&L
+                // ----------------------------------------
 
-              const dayClass =
-                dayChangeValue >= 0
-                  ? "profit"
-                  : "loss";
+                const stockPnl =
+                  stock.pnl != null
+                    ? Number(
+                        stock.pnl
+                      )
+                    : curValue -
+                      investment;
 
-              // Net change
-              const netChange =
-                stock.net != null
-                  ? String(stock.net)
-                  : "0.00%";
+                const stockPnlPercent =
+                  investment > 0
+                    ? (stockPnl /
+                        investment) *
+                      100
+                    : 0;
 
-              const netChangeValue =
-                parseFloat(netChange.replace("%", "")) || 0;
+                const profClass =
+                  stockPnl >= 0
+                    ? "profit"
+                    : "loss";
 
-              const netClass =
-                netChangeValue >= 0
-                  ? "profit"
-                  : "loss";
+                // ----------------------------------------
+                // Day change
+                // ----------------------------------------
 
-              return (
-                <tr key={stock._id || `${stock.name}-${stock.qty}`}>
-                  {/* Instrument */}
+                const dayChange =
+                  stock.day != null
+                    ? String(
+                        stock.day
+                      )
+                    : "0.00%";
 
-                  <td>
-                    {stock.name}
-                  </td>
+                const dayChangeValue =
+                  parseFloat(
+                    dayChange.replace(
+                      "%",
+                      ""
+                    )
+                  ) || 0;
 
-                  {/* Quantity */}
+                const dayClass =
+                  dayChangeValue >= 0
+                    ? "profit"
+                    : "loss";
 
-                  <td>
-                    {qty}
-                  </td>
+                // ----------------------------------------
+                // Net change
+                // ----------------------------------------
 
-                  {/* Average Cost */}
+                const netChange =
+                  stock.net != null
+                    ? String(
+                        stock.net
+                      )
+                    : "0.00%";
 
-                  <td>
-                    ₹{avg.toFixed(2)}
-                  </td>
+                const netChangeValue =
+                  parseFloat(
+                    netChange.replace(
+                      "%",
+                      ""
+                    )
+                  ) || 0;
 
-                  {/* LTP */}
+                const netClass =
+                  netChangeValue >= 0
+                    ? "profit"
+                    : "loss";
 
-                  <td>
-                    ₹{price.toFixed(2)}
-                  </td>
+                return (
+                  <tr
+                    key={
+                      stock._id ||
+                      `${stock.name}-${stock.qty}`
+                    }
+                  >
+                    {/* Instrument */}
 
-                  {/* Current Value */}
+                    <td>
+                      {stock.name}
+                    </td>
 
-                  <td>
-                    ₹{curValue.toFixed(2)}
-                  </td>
+                    {/* Quantity */}
 
-                  {/* P&L */}
+                    <td>
+                      {qty}
+                    </td>
 
-                  <td className={profClass}>
-                    <div>
-                      ₹{stockPnl.toFixed(2)}
-                    </div>
+                    {/* Average Cost */}
 
-                    <small>
-                      {stockPnlPercent >= 0
-                        ? "+"
-                        : ""}
-                      {stockPnlPercent.toFixed(2)}%
-                    </small>
-                  </td>
+                    <td>
+                      ₹
+                      {avg.toFixed(
+                        2
+                      )}
+                    </td>
 
-                  {/* Net Change */}
+                    {/* LTP */}
 
-                  <td className={netClass}>
-                    {netChange}
-                  </td>
+                    <td>
+                      ₹
+                      {price.toFixed(
+                        2
+                      )}
+                    </td>
 
-                  {/* Day Change */}
+                    {/* Current Value */}
 
-                  <td className={dayClass}>
-                    {dayChange}
-                  </td>
-                </tr>
-              );
-            })}
+                    <td>
+                      ₹
+                      {curValue.toFixed(
+                        2
+                      )}
+                    </td>
+
+                    {/* P&L */}
+
+                    <td
+                      className={
+                        profClass
+                      }
+                    >
+                      <div>
+                        ₹
+                        {stockPnl.toFixed(
+                          2
+                        )}
+                      </div>
+
+                      <small>
+                        {stockPnlPercent >=
+                        0
+                          ? "+"
+                          : ""}
+                        {stockPnlPercent.toFixed(
+                          2
+                        )}
+                        %
+                      </small>
+                    </td>
+
+                    {/* Net Change */}
+
+                    <td
+                      className={
+                        netClass
+                      }
+                    >
+                      {netChange}
+                    </td>
+
+                    {/* Day Change */}
+
+                    <td
+                      className={
+                        dayClass
+                      }
+                    >
+                      {dayChange}
+                    </td>
+                  </tr>
+                );
+              }
+            )}
           </tbody>
         </table>
       </div>
 
-      {/* ==========================================
-          Portfolio Summary
-          ========================================== */}
+      {/* ==================================================
+          PORTFOLIO SUMMARY
+          ================================================== */}
 
       <div className="row">
 
@@ -298,20 +700,30 @@ const Holdings = () => {
 
         <div className="col">
           <h5>
-            ₹{totalInvestment.toFixed(2)}
+            ₹
+            {totalInvestment.toFixed(
+              2
+            )}
           </h5>
 
-          <p>Total investment</p>
+          <p>
+            Total investment
+          </p>
         </div>
 
         {/* Current Value */}
 
         <div className="col">
           <h5>
-            ₹{currentValue.toFixed(2)}
+            ₹
+            {currentValue.toFixed(
+              2
+            )}
           </h5>
 
-          <p>Current value</p>
+          <p>
+            Current value
+          </p>
         </div>
 
         {/* Total P&L */}
@@ -324,21 +736,35 @@ const Holdings = () => {
                 : "loss"
             }
           >
-            ₹{pnl.toFixed(2)}{" "}
+            ₹
+            {pnl.toFixed(2)}{" "}
+
             <span>
-              ({pnl >= 0 ? "+" : ""}
-              {pnlPercent.toFixed(2)}%)
+              (
+              {pnl >= 0
+                ? "+"
+                : ""}
+              {pnlPercent.toFixed(
+                2
+              )}
+              %)
             </span>
           </h5>
 
-          <p>P&L</p>
+          <p>
+            P&L
+          </p>
         </div>
 
       </div>
 
-      {/* Portfolio Chart */}
+      {/* ==================================================
+          PORTFOLIO CHART
+          ================================================== */}
 
-      <VerticalGraph data={data} />
+      <VerticalGraph
+        data={data}
+      />
     </>
   );
 };
