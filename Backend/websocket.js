@@ -1,5 +1,8 @@
 const WebSocket = require("ws");
+
 const stockApi = require("./services/stockApi");
+
+const { HoldingsModel } = require("./model/HoldingsModel");
 
 const clients = new Set();
 
@@ -8,10 +11,6 @@ function setupWebSocket(server) {
     server,
     path: "/ws",
   });
-
-  // ======================================================
-  // CLIENT CONNECTION
-  // ======================================================
 
   wss.on("connection", (ws) => {
     console.log("WebSocket client connected");
@@ -222,6 +221,114 @@ function setupWebSocket(server) {
 }
 
 // ======================================================
+// UPDATE HOLDING MARKET PRICE
+// ======================================================
+
+async function updateHoldingMarketPrice(
+  symbol,
+  stockData
+) {
+  try {
+    // Validate market data
+    if (
+      !stockData ||
+      typeof stockData.price !== "number" ||
+      stockData.price <= 0
+    ) {
+      console.log(
+        `Skipping invalid market data for ${symbol}`
+      );
+
+      return;
+    }
+
+    // Convert Yahoo symbol to holding name.
+    //
+    // INFY.NS       -> INFY
+    // TCS.NS        -> TCS
+    // HINDUNILVR.NS -> HINDUNILVR
+
+    const holdingName = symbol
+      .replace(".NS", "")
+      .replace(".BO", "")
+      .toUpperCase();
+
+    // Find holding in MongoDB
+    const holding =
+      await HoldingsModel.findOne({
+        name: holdingName,
+      });
+
+    // Stock may exist in watchlist
+    // but may not be owned.
+    if (!holding) {
+      return;
+    }
+
+    const qty =
+      Number(holding.qty) || 0;
+
+    const avg =
+      Number(holding.avg) || 0;
+
+    const currentPrice =
+      Number(stockData.price);
+
+    // ==================================================
+    // PORTFOLIO CALCULATIONS
+    // ==================================================
+
+    const investment =
+      avg * qty;
+
+    const currentValue =
+      currentPrice * qty;
+
+    const pnl =
+      currentValue - investment;
+
+    const pnlPercent =
+      investment > 0
+        ? (pnl / investment) * 100
+        : 0;
+
+    // ==================================================
+    // UPDATE HOLDING
+    // ==================================================
+
+    // Latest market price
+    holding.price =
+      currentPrice;
+
+    // Unrealized P&L percentage
+    holding.net =
+      pnlPercent;
+
+    // Today's market percentage change
+    holding.day =
+      parseFloat(
+        String(
+          stockData.percent || "0"
+        ).replace("%", "")
+      ) || 0;
+
+    await holding.save();
+
+    console.log(
+      `Updated holding ${holdingName}:`,
+      `price=₹${currentPrice.toFixed(2)}`,
+      `net=${pnlPercent.toFixed(2)}%`,
+      `day=${holding.day.toFixed(2)}%`
+    );
+  } catch (error) {
+    console.error(
+      `Failed to update holding ${symbol}:`,
+      error.message
+    );
+  }
+}
+
+// ======================================================
 // FETCH PRICES FOR ALL SUBSCRIBED SYMBOLS
 // ======================================================
 
@@ -229,7 +336,7 @@ async function updateSubscribedPrices() {
   const symbols = new Set();
 
   // Collect all unique symbols subscribed
-  // by connected clients
+  // by connected clients.
 
   clients.forEach((ws) => {
     if (
@@ -252,7 +359,10 @@ async function updateSubscribedPrices() {
     [...symbols]
   );
 
-  // Fetch prices one by one
+  // ====================================================
+  // FETCH EACH STOCK
+  // ====================================================
+
   for (const symbol of symbols) {
     try {
       const stockData =
@@ -263,18 +373,27 @@ async function updateSubscribedPrices() {
           }
         );
 
-      // --------------------------------------------------
+      // ==================================================
+      // UPDATE MONGODB HOLDING
+      // ==================================================
+
+      await updateHoldingMarketPrice(
+        symbol,
+        stockData
+      );
+
+      // ==================================================
       // WATCHLIST PRICE UPDATE
-      // --------------------------------------------------
+      // ==================================================
 
       broadcastToSubscribers(
         symbol,
         stockData
       );
 
-      // --------------------------------------------------
+      // ==================================================
       // HOLDINGS PRICE UPDATE
-      // --------------------------------------------------
+      // ==================================================
 
       broadcastHoldingPriceUpdate(
         symbol,
@@ -293,7 +412,10 @@ async function updateSubscribedPrices() {
 // BROADCAST STOCK PRICE UPDATE
 // ======================================================
 
-function broadcastToSubscribers(symbol, data) {
+function broadcastToSubscribers(
+  symbol,
+  data
+) {
   let broadcastCount = 0;
 
   clients.forEach((ws) => {
@@ -324,7 +446,10 @@ function broadcastToSubscribers(symbol, data) {
 // BROADCAST HOLDING PRICE UPDATE
 // ======================================================
 
-function broadcastHoldingPriceUpdate(symbol, data) {
+function broadcastHoldingPriceUpdate(
+  symbol,
+  data
+) {
   let broadcastCount = 0;
 
   clients.forEach((ws) => {

@@ -250,6 +250,7 @@ app.post("/newOrder", async (req, res) => {
     // BUY
     // -----------------------------
 
+
     if (mode === "BUY") {
       const holding = await HoldingsModel.findOne({ name });
 
@@ -267,11 +268,6 @@ app.post("/newOrder", async (req, res) => {
 
         holding.qty = newQty;
         holding.avg = newAveragePrice;
-
-        // For now this is the latest traded price.
-        // We'll improve live-price handling next.
-        holding.price = price;
-
         await holding.save();
       } else {
         const newHolding = new HoldingsModel({

@@ -9,20 +9,21 @@ const HoldingsSchema = new Schema(
       trim: true,
     },
 
+    // Number of shares currently owned
     qty: {
       type: Number,
       required: true,
       min: 0,
     },
 
+    // Weighted average price at which shares were purchased
     avg: {
       type: Number,
       required: true,
       min: 0,
     },
 
-    // Latest market price.
-    // This will be updated from the stock API.
+    // Latest market price received from market-data service
     price: {
       type: Number,
       required: true,
@@ -35,7 +36,7 @@ const HoldingsSchema = new Schema(
       default: 0,
     },
 
-    // Today's percentage change
+    // Today's market percentage change
     day: {
       type: Number,
       default: 0,
