@@ -373,6 +373,11 @@ async function updateSubscribedPrices() {
           }
         );
 
+        stockApi.setLivePrice(
+          symbol,
+          stockData
+        );
+
       // ==================================================
       // UPDATE MONGODB HOLDING
       // ==================================================
