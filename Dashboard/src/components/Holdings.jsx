@@ -1,23 +1,25 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
+
 import { VerticalGraph } from "./VerticalGraph";
+import useStockWebSocket from "../hooks/useStockWebSocket";
+
 import "../App.css";
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "http://localhost:3002",
+  baseURL:
+    import.meta.env.VITE_API_URL ||
+    "http://localhost:3002",
 });
-
-const WS_URL =
-  import.meta.env.VITE_WS_URL || "ws://localhost:3002/ws";
 
 const Holdings = () => {
   const [allHoldings, setAllHoldings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // ======================================================
+  // ==================================================
   // FETCH INITIAL HOLDINGS
-  // ======================================================
+  // ==================================================
 
   useEffect(() => {
     let mounted = true;
@@ -27,7 +29,8 @@ const Holdings = () => {
         setLoading(true);
         setError("");
 
-        const res = await api.get("/allHoldings");
+        const res =
+          await api.get("/allHoldings");
 
         if (mounted) {
           setAllHoldings(
@@ -43,7 +46,10 @@ const Holdings = () => {
         );
 
         if (mounted) {
-          setError("Failed to load holdings");
+          setError(
+            "Failed to load holdings"
+          );
+
           setAllHoldings([]);
         }
       } finally {
@@ -60,276 +66,131 @@ const Holdings = () => {
     };
   }, []);
 
-  // ======================================================
-  // WEBSOCKET - LIVE HOLDING PRICE UPDATES
-  // ======================================================
+  // ==================================================
+  // CREATE YAHOO SYMBOLS FOR HOLDINGS
+  // ==================================================
+
+  const holdingSymbols = useMemo(() => {
+    return allHoldings.map(
+      (stock) => `${stock.name}.NS`
+    );
+  }, [allHoldings]);
+
+  // ==================================================
+  // REAL-TIME WEBSOCKET
+  // ==================================================
+
+  const {
+    isConnected,
+    prices,
+  } = useStockWebSocket(
+    holdingSymbols,
+    "HOLDINGS_SUBSCRIBE"
+  );
+
+  // ==================================================
+  // UPDATE HOLDINGS WITH LIVE PRICE
+  // ==================================================
 
   useEffect(() => {
-    // Don't create a WebSocket if there are no holdings
-    if (allHoldings.length === 0) {
+    if (
+      !prices ||
+      Object.keys(prices).length === 0
+    ) {
       return;
     }
 
-    console.log(
-      "Connecting Holdings WebSocket..."
+    setAllHoldings(
+      (previousHoldings) =>
+        previousHoldings.map(
+          (holding) => {
+            const symbol =
+              `${holding.name}.NS`;
+
+            const liveStock =
+              prices[symbol];
+
+            if (!liveStock) {
+              return holding;
+            }
+
+            const qty =
+              Number(holding.qty) || 0;
+
+            const avg =
+              Number(holding.avg) || 0;
+
+            const livePrice =
+              Number(liveStock.price) || 0;
+
+            // ==========================================
+            // INVESTMENT
+            // ==========================================
+
+            const investment =
+              avg * qty;
+
+            // ==========================================
+            // CURRENT VALUE
+            // ==========================================
+
+            const currentValue =
+              livePrice * qty;
+
+            // ==========================================
+            // P&L
+            // ==========================================
+
+            const pnl =
+              currentValue -
+              investment;
+
+            // ==========================================
+            // P&L %
+            // ==========================================
+
+            const pnlPercent =
+              investment > 0
+                ? (pnl / investment) * 100
+                : 0;
+
+            // ==========================================
+            // DAY CHANGE
+            // ==========================================
+
+            const dayChange =
+              parseFloat(
+                String(
+                  liveStock.percent ||
+                    "0"
+                ).replace("%", "")
+              ) || 0;
+
+            return {
+              ...holding,
+
+              // Live market data
+              price: livePrice,
+
+              // Calculated portfolio data
+              investment,
+              currentValue,
+              pnl,
+
+              // Net P&L percentage
+              net: pnlPercent,
+
+              // Today's change
+              day: dayChange,
+            };
+          }
+        )
     );
+  }, [prices]);
 
-    const ws = new WebSocket(WS_URL);
-
-    ws.onopen = () => {
-      console.log(
-        "Holdings WebSocket connected"
-      );
-
-      // Convert holdings names into Yahoo symbols
-      const symbols = allHoldings.map((stock) => {
-        const name = String(stock.name)
-          .trim()
-          .toUpperCase();
-
-        // Already a Yahoo symbol
-        if (
-          name.endsWith(".NS") ||
-          name.endsWith(".BO")
-        ) {
-          return name;
-        }
-
-        // Special symbol mapping
-        if (name === "HUL") {
-          return "HINDUNILVR.NS";
-        }
-
-        if (name === "M&M") {
-          return "M&M.NS";
-        }
-
-        // Default to NSE
-        return `${name}.NS`;
-      });
-
-      console.log(
-        "Subscribing holdings to:",
-        symbols
-      );
-
-      ws.send(
-        JSON.stringify({
-          type: "HOLDINGS_SUBSCRIBE",
-          symbols,
-        })
-      );
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const message = JSON.parse(
-          event.data
-        );
-
-        console.log(
-          "Holdings WebSocket message:",
-          message
-        );
-
-        // ==============================================
-        // HOLDINGS SUBSCRIPTION CONFIRMATION
-        // ==============================================
-
-        if (
-          message.type ===
-          "HOLDINGS_SUBSCRIBED"
-        ) {
-          console.log(
-            "Holdings subscribed:",
-            message.data?.symbols
-          );
-
-          return;
-        }
-
-        // ==============================================
-        // LIVE PRICE UPDATE
-        // ==============================================
-
-        if (
-          message.type ===
-          "HOLDING_PRICE_UPDATE"
-        ) {
-          const updatedData =
-            message.data;
-
-          if (!updatedData) {
-            return;
-          }
-
-          const symbol =
-            updatedData.symbol;
-
-          const livePrice =
-            Number(updatedData.price);
-
-          if (
-            !symbol ||
-            !Number.isFinite(livePrice) ||
-            livePrice <= 0
-          ) {
-            return;
-          }
-
-          console.log(
-            `Live holding price: ${symbol} → ₹${livePrice}`
-          );
-
-          // ============================================
-          // UPDATE HOLDING
-          // ============================================
-
-          setAllHoldings((currentHoldings) =>
-            currentHoldings.map((stock) => {
-              const stockName =
-                String(stock.name)
-                  .trim()
-                  .toUpperCase();
-
-              let stockSymbol;
-
-              if (
-                stockName.endsWith(".NS") ||
-                stockName.endsWith(".BO")
-              ) {
-                stockSymbol = stockName;
-              } else if (
-                stockName === "HUL"
-              ) {
-                stockSymbol =
-                  "HINDUNILVR.NS";
-              } else if (
-                stockName === "M&M"
-              ) {
-                stockSymbol =
-                  "M&M.NS";
-              } else {
-                stockSymbol =
-                  `${stockName}.NS`;
-              }
-
-              // Not this holding
-              if (stockSymbol !== symbol) {
-                return stock;
-              }
-
-              const qty =
-                Number(stock.qty) || 0;
-
-              const avg =
-                Number(stock.avg) || 0;
-
-              // ------------------------------------------
-              // Current market value
-              // ------------------------------------------
-
-              const currentValue =
-                livePrice * qty;
-
-              // ------------------------------------------
-              // Investment
-              // ------------------------------------------
-
-              const investment =
-                avg * qty;
-
-              // ------------------------------------------
-              // P&L
-              // ------------------------------------------
-
-              const pnl =
-                currentValue -
-                investment;
-
-              // ------------------------------------------
-              // P&L percentage
-              // ------------------------------------------
-
-              const pnlPercent =
-                investment > 0
-                  ? (pnl / investment) *
-                    100
-                  : 0;
-
-              return {
-                ...stock,
-
-                // Latest market price
-                price: livePrice,
-
-                // Calculated values
-                currentValue,
-                investment,
-                pnl: pnl,
-                pnlPercent,
-
-                // Keep net aligned with P&L %
-                net: pnlPercent,
-
-                // Preserve live day change
-                day:
-                  updatedData.percent ||
-                  stock.day ||
-                  "0.00%",
-              };
-            })
-          );
-        }
-      } catch (err) {
-        console.error(
-          "Holdings WebSocket message error:",
-          err
-        );
-      }
-    };
-
-    ws.onerror = (event) => {
-      console.error(
-        "Holdings WebSocket error:",
-        event
-      );
-    };
-
-    ws.onclose = () => {
-      console.log(
-        "Holdings WebSocket disconnected"
-      );
-    };
-
-    // ==============================================
-    // CLEANUP
-    // ==============================================
-
-    return () => {
-      console.log(
-        "Closing Holdings WebSocket..."
-      );
-
-      if (
-        ws.readyState ===
-        WebSocket.OPEN
-      ) {
-        ws.send(
-          JSON.stringify({
-            type:
-              "HOLDINGS_UNSUBSCRIBE",
-          })
-        );
-      }
-
-      ws.close();
-    };
-  }, [allHoldings.length]);
-
-  // ======================================================
+  // ==================================================
   // PORTFOLIO CALCULATIONS
-  // ======================================================
+  // ==================================================
 
   const totalInvestment =
     allHoldings.reduce(
@@ -347,7 +208,9 @@ const Holdings = () => {
               )
             : avg * qty;
 
-        return total + investment;
+        return (
+          total + investment
+        );
       },
       0
     );
@@ -379,12 +242,13 @@ const Holdings = () => {
 
   const pnlPercent =
     totalInvestment > 0
-      ? (pnl / totalInvestment) * 100
+      ? (pnl / totalInvestment) *
+        100
       : 0;
 
-  // ======================================================
+  // ==================================================
   // CHART DATA
-  // ======================================================
+  // ==================================================
 
   const labels =
     allHoldings.map(
@@ -409,9 +273,9 @@ const Holdings = () => {
     ],
   };
 
-  // ======================================================
+  // ==================================================
   // LOADING
-  // ======================================================
+  // ==================================================
 
   if (loading) {
     return (
@@ -421,9 +285,9 @@ const Holdings = () => {
     );
   }
 
-  // ======================================================
+  // ==================================================
   // ERROR
-  // ======================================================
+  // ==================================================
 
   if (error) {
     return (
@@ -433,34 +297,54 @@ const Holdings = () => {
     );
   }
 
-  // ======================================================
+  // ==================================================
   // EMPTY
-  // ======================================================
+  // ==================================================
 
   if (allHoldings.length === 0) {
     return (
       <div className="empty-state">
-        <h2>
-          Holdings (0)
-        </h2>
+        <h2>Holdings (0)</h2>
 
         <p>
-          You don't have any
-          holdings yet.
+          You don't have any holdings yet.
         </p>
       </div>
     );
   }
 
-  // ======================================================
+  // ==================================================
   // MAIN UI
-  // ======================================================
+  // ==================================================
 
   return (
     <>
-      <h2>
-        Holdings ({allHoldings.length})
-      </h2>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+        }}
+      >
+        <h2>
+          Holdings ({allHoldings.length})
+        </h2>
+
+        {/* WebSocket status */}
+
+        <span
+          style={{
+            fontSize: "12px",
+            color: isConnected
+              ? "green"
+              : "red",
+          }}
+        >
+          {isConnected
+            ? "● Live"
+            : "● Disconnected"}
+        </span>
+      </div>
 
       {/* ==================================================
           HOLDINGS TABLE
@@ -485,31 +369,35 @@ const Holdings = () => {
             {allHoldings.map(
               (stock) => {
                 const qty =
-                  Number(stock.qty) ||
-                  0;
+                  Number(
+                    stock.qty
+                  ) || 0;
 
                 const avg =
-                  Number(stock.avg) ||
-                  0;
+                  Number(
+                    stock.avg
+                  ) || 0;
 
                 const price =
-                  Number(stock.price) ||
-                  0;
+                  Number(
+                    stock.price
+                  ) || 0;
 
-                // ----------------------------------------
-                // Investment
-                // ----------------------------------------
+                // ========================================
+                // INVESTMENT
+                // ========================================
 
                 const investment =
-                  stock.investment != null
+                  stock.investment !=
+                  null
                     ? Number(
                         stock.investment
                       )
                     : avg * qty;
 
-                // ----------------------------------------
-                // Current value
-                // ----------------------------------------
+                // ========================================
+                // CURRENT VALUE
+                // ========================================
 
                 const curValue =
                   stock.currentValue !=
@@ -519,9 +407,9 @@ const Holdings = () => {
                       )
                     : price * qty;
 
-                // ----------------------------------------
+                // ========================================
                 // P&L
-                // ----------------------------------------
+                // ========================================
 
                 const stockPnl =
                   stock.pnl != null
@@ -543,9 +431,9 @@ const Holdings = () => {
                     ? "profit"
                     : "loss";
 
-                // ----------------------------------------
-                // Day change
-                // ----------------------------------------
+                // ========================================
+                // DAY CHANGE
+                // ========================================
 
                 const dayChange =
                   stock.day != null
@@ -567,9 +455,9 @@ const Holdings = () => {
                     ? "profit"
                     : "loss";
 
-                // ----------------------------------------
-                // Net change
-                // ----------------------------------------
+                // ========================================
+                // NET CHANGE
+                // ========================================
 
                 const netChange =
                   stock.net != null
@@ -610,7 +498,7 @@ const Holdings = () => {
                       {qty}
                     </td>
 
-                    {/* Average Cost */}
+                    {/* Average */}
 
                     <td>
                       ₹
@@ -619,7 +507,7 @@ const Holdings = () => {
                       )}
                     </td>
 
-                    {/* LTP */}
+                    {/* LIVE PRICE */}
 
                     <td>
                       ₹
@@ -737,7 +625,9 @@ const Holdings = () => {
             }
           >
             ₹
-            {pnl.toFixed(2)}{" "}
+            {pnl.toFixed(2)}
+
+            {" "}
 
             <span>
               (
@@ -751,9 +641,7 @@ const Holdings = () => {
             </span>
           </h5>
 
-          <p>
-            P&L
-          </p>
+          <p>P&L</p>
         </div>
 
       </div>

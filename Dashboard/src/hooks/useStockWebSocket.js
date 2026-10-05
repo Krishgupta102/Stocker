@@ -4,7 +4,10 @@ const WS_URL =
   import.meta.env.VITE_WS_URL ||
   "ws://localhost:3002/ws";
 
-const useStockWebSocket = (symbols = []) => {
+const useStockWebSocket = (
+  symbols = [],
+  subscriptionType = "SUBSCRIBE"
+) => {
   const socketRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
 
@@ -15,8 +18,8 @@ const useStockWebSocket = (symbols = []) => {
     useState({});
 
   // Convert symbols into a stable string.
-  // This prevents the WebSocket from reconnecting
-  // every time the parent component renders.
+  // Prevents unnecessary WebSocket reconnections
+  // when the parent component re-renders.
   const symbolsKey = symbols.join(",");
 
   useEffect(() => {
@@ -39,6 +42,10 @@ const useStockWebSocket = (symbols = []) => {
 
       socketRef.current = socket;
 
+      // ==================================================
+      // CONNECTION OPEN
+      // ==================================================
+
       socket.onopen = () => {
         console.log(
           "WebSocket connected"
@@ -48,16 +55,29 @@ const useStockWebSocket = (symbols = []) => {
 
         socket.send(
           JSON.stringify({
-            type: "SUBSCRIBE",
+            type: subscriptionType,
             symbols: subscriptionSymbols,
           })
         );
+
+        console.log(
+          `Subscribed using ${subscriptionType}:`,
+          subscriptionSymbols
+        );
       };
+
+      // ==================================================
+      // RECEIVE MESSAGE
+      // ==================================================
 
       socket.onmessage = (event) => {
         try {
           const message =
             JSON.parse(event.data);
+
+          // ----------------------------------------------
+          // NORMAL STOCK PRICE UPDATE
+          // ----------------------------------------------
 
           if (
             message.type ===
@@ -66,12 +86,92 @@ const useStockWebSocket = (symbols = []) => {
             const stock =
               message.data;
 
+            if (!stock) {
+              return;
+            }
+
+            const symbol =
+              stock.symbol ||
+              stock.name;
+
+            if (!symbol) {
+              return;
+            }
+
             setPrices(
               (previousPrices) => ({
                 ...previousPrices,
-                [stock.symbol]:
-                  stock,
+                [symbol]: stock,
               })
+            );
+          }
+
+          // ----------------------------------------------
+          // HOLDING PRICE UPDATE
+          // ----------------------------------------------
+
+          if (
+            message.type ===
+            "HOLDING_PRICE_UPDATE"
+          ) {
+            const stock =
+              message.data;
+
+            if (!stock) {
+              return;
+            }
+
+            const symbol =
+              stock.symbol ||
+              stock.name;
+
+            if (!symbol) {
+              return;
+            }
+
+            setPrices(
+              (previousPrices) => ({
+                ...previousPrices,
+                [symbol]: stock,
+              })
+            );
+          }
+
+          // ----------------------------------------------
+          // CONNECTION MESSAGE
+          // ----------------------------------------------
+
+          if (
+            message.type ===
+            "CONNECTED"
+          ) {
+            console.log(
+              "WebSocket server:",
+              message.message
+            );
+          }
+
+          // ----------------------------------------------
+          // SUBSCRIPTION CONFIRMATION
+          // ----------------------------------------------
+
+          if (
+            message.type ===
+            "SUBSCRIBED"
+          ) {
+            console.log(
+              "Stock subscription confirmed:",
+              message.data
+            );
+          }
+
+          if (
+            message.type ===
+            "HOLDINGS_SUBSCRIBED"
+          ) {
+            console.log(
+              "Holdings subscription confirmed:",
+              message.data
             );
           }
         } catch (error) {
@@ -82,13 +182,19 @@ const useStockWebSocket = (symbols = []) => {
         }
       };
 
+      // ==================================================
+      // ERROR
+      // ==================================================
+
       socket.onerror = () => {
-        // Browser WebSocket errors don't
-        // provide much useful information.
         console.error(
           "WebSocket connection error"
         );
       };
+
+      // ==================================================
+      // CLOSE
+      // ==================================================
 
       socket.onclose = () => {
         console.log(
@@ -114,6 +220,10 @@ const useStockWebSocket = (symbols = []) => {
 
     connect();
 
+    // ==================================================
+    // CLEANUP
+    // ==================================================
+
     return () => {
       shouldReconnect = false;
 
@@ -134,7 +244,10 @@ const useStockWebSocket = (symbols = []) => {
         socketRef.current = null;
       }
     };
-  }, [symbolsKey]);
+  }, [
+    symbolsKey,
+    subscriptionType,
+  ]);
 
   return {
     isConnected,
